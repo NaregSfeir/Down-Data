@@ -1,0 +1,147 @@
+import pandas as pd
+import requests
+import csv
+from io import StringIO
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.feature_extraction.text import CountVectorizer
+import squarify
+
+# Configuration
+URL = 'https://raw.githubusercontent.com/NaregSfeir/Down-Data/main/data/train.csv'
+COLUMN_NAMES = ['news_categories', 'news_title', 'news_detail']
+WORDS_TO_REMOVE = ['is', 'a', 'with', 'some', 'reuters', 'says', '39', 'gt', '36', 'ap', 'win', 'wins', 'new', 'open', '10']
+
+# Fetch the file from the URL
+response = requests.get(URL)
+
+# Read the content of the file into a DataFrame
+df = pd.read_csv(StringIO(response.text), delimiter=',', header=None, quoting=csv.QUOTE_MINIMAL)
+
+# Set the column names & Rename
+df.columns = COLUMN_NAMES
+df['news_categories'] = df['news_categories'].replace({1: 'World', 2: 'Sports', 3: 'Business', 4: 'Sci/Tech'})
+
+def clean_data(df):
+    # extract agency names from news titles
+    df['news_agency'] = df['news_title'].str.extract(r'\((.*?)\)')
+    # do some data cleaning
+    df['news_agency'] = df['news_agency'].replace(to_replace=r'\bUpdate\d+\b', value=np.nan, regex=True)
+    df['news_agency'] = df['news_agency'].replace(to_replace=r'.*\d.*', value=np.nan, regex=True)
+    return df
+
+def plot_agency_distribution(df):
+    # Explore the distribution of categories
+    top_10_agencies = df['news_agency'].value_counts().head(10)
+    plt.figure(figsize=(10, 6))
+    sns.barplot(x=top_10_agencies.index, y=top_10_agencies.values)
+    plt.xlabel('Category')
+    plt.ylabel('Count')
+    plt.title('Distribution of News Agencies')
+    plt.xticks(rotation=45)
+    plt.show()
+
+def plot_agency_category_distribution(df):
+    # Select only news agency & news categories fields & take the top 10 agencies
+    selected_columns_df = df[['news_agency', 'news_categories']]
+    top_10_agencies = df['news_agency'].value_counts().head(10)
+    top_10_agencies_names = top_10_agencies.index.tolist()
+    # Group by news agency and news category, and count the occurrences
+    filtered_df = selected_columns_df[selected_columns_df['news_agency'].isin(top_10_agencies_names)]
+    grouped = filtered_df.groupby(['news_agency', 'news_categories']).size().unstack(fill_value=0)
+    grouped = grouped.loc[grouped.sum(axis=1).sort_values(ascending=False).index]
+
+    # Plotting the bar graph
+    ax = grouped.plot(kind='bar', stacked=True, figsize=(10, 6))
+    ax.set_ylabel('Count')
+    ax.set_xlabel('News Agency')
+    plt.legend(title='News Category', bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.title('Count of News Categories by News Agency')
+    plt.xticks(rotation=0)
+    plt.show()
+
+def plot_word_treemap(df, agency):
+    # Text preprocessing (remove stopwords, punctuation, lowercase)
+    filtered_df = df[df['news_agency'] == agency]
+    cv = CountVectorizer(stop_words='english')
+    title_word_count = cv.fit_transform(filtered_df['news_title']).sum(axis=0)
+
+    # Remove words from the vocabulary
+    for word in WORDS_TO_REMOVE:
+        if word in cv.vocabulary_:
+            del cv.vocabulary_[word]
+
+    word_freq = [(word, title_word_count[0, idx]) for word, idx in cv.vocabulary_.items()]
+    word_freq = sorted(word_freq, key=lambda x: x[1], reverse=True)[:20]
+
+    # Extract labels and sizes
+    labels = [item[0] for item in word_freq]
+    sizes = [item[1] for item in word_freq]
+
+    # Create a treemap
+    plt.figure(figsize=(12, 8))
+    squarify.plot(sizes=sizes, label=labels, alpha=0.8)
+    plt.axis('off')
+    plt.title(f'Treemap of Word Frequencies for {agency}')
+    plt.show()
+
+def plot_length_distribution(df):
+    # Text length analysis
+    df['news_title_length'] = df['news_title'].apply(len)
+    df['news_detail_length'] = df['news_detail'].apply(len)
+    plt.figure(figsize=(12, 6))
+    plt.subplot(1, 2, 1)
+    df['news_title_length'].plot(kind='hist', bins=20, title='News Title Length Distribution')
+    plt.subplot(1, 2, 2)
+    df['news_detail_length'].plot(kind='hist', bins=20, title='News Detail Length Distribution')
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    pd.set_option('display.max_rows', None)
+    # pd.set_option('display.max_columns', None)
+
+    df = clean_data(df)
+
+    # Print first few rows
+    print("First Few Rows:")
+    print("-" * 20)
+    print(df.head())
+    print("\n")
+
+    # Print DataFrame information
+    print("DataFrame Info:")
+    print("-" * 20)
+    print(df.info())
+    print("\n")
+
+    # Print DataFrame description
+    print("DataFrame Description:")
+    print("-" * 20)
+    print(df.describe())
+    print("\n")
+
+    # Print data types
+    print("Data Types:")
+    print("-" * 20)
+    print(df.dtypes)
+    print("\n")
+
+    # Print number of missing values
+    print("Missing Values:")
+    print("-" * 20)
+    print(df.isnull().sum())
+    print("\n")
+
+    # Print number of unique values in each column
+    print("Number of Unique Values in Each Column:")
+    print("-" * 20)
+    print(df.nunique())
+    print("\n")
+
+    plot_agency_distribution(df)
+    plot_agency_category_distribution(df)
+    plot_word_treemap(df, 'Reuters')
+    plot_word_treemap(df, 'AP')
+    plot_length_distribution(df)
